@@ -32,6 +32,7 @@ enum {
     OPT_WINDOW_WIDTH,
     OPT_WINDOW_HEIGHT,
     OPT_WINDOW_BORDERLESS,
+    OPT_WINDOW_PARENT,
     OPT_MAX_FPS,
     OPT_LOCK_VIDEO_ORIENTATION,
     OPT_DISPLAY,
@@ -1063,6 +1064,14 @@ static const struct sc_option options[] = {
         .text = "Set the initial window height.\n"
                 "Default is 0 (automatic).",
     },
+    {
+        .longopt_id = OPT_WINDOW_PARENT,
+        .longopt = "window-parent",
+        .argdesc = "hwnd",
+        .text = "Embed the scrcpy window into the given parent HWND (Windows "
+                "only).\nThe handle may be provided in decimal or "
+                "hexadecimal form.",
+    },
 };
 
 static const struct sc_shortcut shortcuts[] = {
@@ -1762,6 +1771,32 @@ parse_window_dimension(const char *s, uint16_t *dimension) {
 
     *dimension = (uint16_t) value;
     return true;
+}
+
+static bool
+parse_window_parent(const char *s, uint64_t *parent) {
+#ifndef _WIN32
+    (void) s;
+    (void) parent;
+
+    LOGE("--window-parent is only supported on Windows");
+    return false;
+#else
+    char *end;
+    unsigned long long value = strtoull(s, &end, 0);
+    if (!*s || *end) {
+        LOGE("Invalid window parent handle: %s", s);
+        return false;
+    }
+
+    if (!value) {
+        LOGE("Window parent handle must be non-zero");
+        return false;
+    }
+
+    *parent = value;
+    return true;
+#endif
 }
 
 static bool
@@ -2537,6 +2572,12 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                     return false;
                 }
                 break;
+            case OPT_WINDOW_PARENT:
+                if (!parse_window_parent(optarg, &opts->window_parent)) {
+                    return false;
+                }
+                opts->window_parent_is_set = true;
+                break;
             case OPT_WINDOW_BORDERLESS:
                 opts->window_borderless = true;
                 break;
@@ -2863,6 +2904,11 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
         opts->video_playback = false;
         // Controls are still possible, allowing for options like
         // --turn-screen-off
+    }
+
+    if (opts->window_parent_is_set && !opts->window) {
+        LOGE("--window-parent is incompatible with --no-window");
+        return false;
     }
 
     if (!opts->video) {

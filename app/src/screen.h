@@ -69,6 +69,8 @@ struct sc_screen {
 
     bool paused;
     AVFrame *resume_frame;
+
+    bool embedded;
 };
 
 struct sc_screen_params {
@@ -92,6 +94,8 @@ struct sc_screen_params {
     int16_t window_y; // accepts SC_WINDOW_POSITION_UNDEFINED
     uint16_t window_width;
     uint16_t window_height;
+    uint64_t window_parent;
+    bool window_parent_is_set;
 
     bool window_borderless;
 

@@ -271,6 +271,8 @@ struct scrcpy_options {
     int16_t window_y; // SC_WINDOW_POSITION_UNDEFINED for "auto"
     uint16_t window_width;
     uint16_t window_height;
+    uint64_t window_parent;
+    bool window_parent_is_set;
     uint32_t display_id;
     sc_tick video_buffer;
     sc_tick audio_buffer;
