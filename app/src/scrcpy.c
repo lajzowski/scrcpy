@@ -819,6 +819,8 @@ aoa_complete:
             .window_y = options->window_y,
             .window_width = options->window_width,
             .window_height = options->window_height,
+            .window_parent = options->window_parent,
+            .window_parent_is_set = options->window_parent_is_set,
             .window_borderless = options->window_borderless,
             .orientation = options->display_orientation,
             .mipmaps = options->mipmaps,

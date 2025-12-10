@@ -3,6 +3,10 @@
 #include <assert.h>
 #include <string.h>
 #include <SDL2/SDL.h>
+#ifdef _WIN32
+# include <SDL2/SDL_syswm.h>
+# include <windows.h>
+#endif
 
 #include "events.h"
 #include "icon.h"
@@ -25,6 +29,43 @@ get_oriented_size(struct sc_size size, enum sc_orientation orientation) {
     }
     return oriented_size;
 }
+
+#ifdef _WIN32
+static bool
+sc_screen_embed_window(struct sc_screen *screen, uint64_t parent_handle) {
+    SDL_SysWMinfo wmi;
+    SDL_VERSION(&wmi.version);
+    if (!SDL_GetWindowWMInfo(screen->window, &wmi)) {
+        LOGE("Could not retrieve window info: %s", SDL_GetError());
+        return false;
+    }
+
+    HWND hwnd = wmi.info.win.window;
+    HWND parent = (HWND) (uintptr_t) parent_handle;
+
+    LONG style = GetWindowLong(hwnd, GWL_STYLE);
+    style &= ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU
+               | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+    style |= WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    SetWindowLong(hwnd, GWL_STYLE, style);
+
+    LONG exstyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+    exstyle |= WS_EX_NOPARENTNOTIFY;
+    exstyle &= ~WS_EX_APPWINDOW;
+    SetWindowLong(hwnd, GWL_EXSTYLE, exstyle);
+
+    if (!SetParent(hwnd, parent)) {
+        LOGE("Could not reparent window");
+        return false;
+    }
+
+    SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
+                 | SWP_NOACTIVATE);
+
+    return true;
+}
+#endif
 
 // get the window size in a struct sc_size
 static struct sc_size
@@ -333,6 +374,7 @@ sc_screen_init(struct sc_screen *screen,
     screen->paused = false;
     screen->resume_frame = NULL;
     screen->orientation = SC_ORIENTATION_0;
+    screen->embedded = false;
 
     screen->video = params->video;
 
@@ -399,6 +441,20 @@ sc_screen_init(struct sc_screen *screen,
         LOGE("Could not create window: %s", SDL_GetError());
         goto error_destroy_fps_counter;
     }
+
+#ifdef _WIN32
+    if (params->window_parent_is_set) {
+        if (!sc_screen_embed_window(screen, params->window_parent)) {
+            goto error_destroy_window;
+        }
+
+        screen->embedded = true;
+        if (screen->req.fullscreen) {
+            LOGW("--window-parent set: disabling fullscreen");
+            screen->req.fullscreen = false;
+        }
+    }
+#endif
 
     SDL_Surface *icon = scrcpy_icon_load();
     if (icon) {
@@ -490,6 +546,11 @@ sc_screen_show_initial_window(struct sc_screen *screen) {
           ? screen->req.x : (int) SDL_WINDOWPOS_CENTERED;
     int y = screen->req.y != SC_WINDOW_POSITION_UNDEFINED
           ? screen->req.y : (int) SDL_WINDOWPOS_CENTERED;
+
+    if (screen->embedded) {
+        x = 0;
+        y = 0;
+    }
 
     struct sc_size window_size =
         get_initial_optimal_size(screen->content_size, screen->req.width,
@@ -737,6 +798,11 @@ sc_screen_set_paused(struct sc_screen *screen, bool paused) {
 void
 sc_screen_toggle_fullscreen(struct sc_screen *screen) {
     assert(screen->video);
+
+    if (screen->embedded) {
+        LOGW("Fullscreen is disabled for embedded windows");
+        return;
+    }
 
     uint32_t new_mode = screen->fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP;
     if (SDL_SetWindowFullscreen(screen->window, new_mode)) {
